@@ -63,13 +63,6 @@ button{margin:4px;}
 
 <br><br>
 
-OBS画像①：
-<input id="obsImgInput1" placeholder="画像URL"><br>
-OBS画像③：
-<input id="obsImgInput3" placeholder="画像URL">
-
-<br><br>
-
 <button onclick="init()">生成</button>
 <button onclick="resetInputs()">リセット</button>
 
@@ -83,23 +76,10 @@ OBS画像③：
 <br>
 <div id="tableArea"></div>
 
-<h2>コピー用（配信貼り付け用）</h2>
+<h2>コピー用</h2>
 <textarea id="copyArea" rows="14" cols="45"></textarea>
 <br>
 <button onclick="copyScores()">コピー</button>
-
-<h2>OBS①</h2>
-<div id="obs1" class="obs"></div>
-
-<h2>OBS③</h2>
-<div id="obs3" class="obs"></div>
-
-<h2>OBS用URL</h2>
-OBS①:
-<input id="obsUrl1" style="width:420px" readonly>
-<br>
-OBS③:
-<input id="obsUrl3" style="width:420px" readonly>
 
 <script>
 
@@ -115,50 +95,17 @@ let previousRanks={};
 let shortcutMap={};
 
 /* ============================= */
-/* OBSリアルタイム同期 */
-function saveOBSState(data){
-  localStorage.setItem("mk_obs_state",JSON.stringify(data));
-}
-
-function loadOBSState(){
-  return JSON.parse(localStorage.getItem("mk_obs_state")||"{}");
-}
-
-/* OBS表示モード */
-const params=new URLSearchParams(location.search);
-if(params.get("obs")){
-  document.body.innerHTML="<div id='obsLive'></div>";
-  setInterval(()=>{
-    const data=loadOBSState();
-    if(!data.text) return;
-    document.getElementById("obsLive").innerHTML=
-      "<div style='background:black;color:white;padding:12px;font-size:22px'>"
-      +data.text.replace(/\n/g,"<br>")+
-      "</div>";
-  },500);
-}
-
-/* ============================= */
 
 for(let i=8;i<=32;i++){
   raceSelect.append(new Option(i,i));
 }
 
-function generateObsURLs(){
-  const base=location.origin+location.pathname;
-  obsUrl1.value=base+"?obs=1";
-  obsUrl3.value=base+"?obs=3";
-}
-
-/* ===== 目標順位選択肢生成 ===== */
 function updateTargetRankOptions(teamCount){
   targetRank.innerHTML="";
   for(let i=1;i<=teamCount;i++){
     targetRank.append(new Option(`${i}位`,i));
   }
 }
-
-/* ============================= */
 
 function init(){
 
@@ -185,10 +132,8 @@ function init(){
 
   buildTable();
   recalcScores();
-  generateObsURLs();
 }
 
-/* ===== リセット ===== */
 function resetInputs(){
   if(!confirm("全データをリセットしますか？")) return;
   location.reload();
@@ -223,12 +168,23 @@ function buildTable(){
 
       input.addEventListener("keydown",(e)=>{
 
+        /* ENTER ↓ */
         if(e.key==="Enter"){
           e.preventDefault();
           moveNext(input);
           return;
         }
 
+        /* Backspace 完全削除 */
+        if(e.key==="Backspace"){
+          e.preventDefault();
+          input.value="";
+          input.dataset.team="";
+          recalcScores();
+          return;
+        }
+
+        /* ショートカット */
         const key=e.key.toLowerCase();
         if(shortcutMap[key]!==undefined){
           e.preventDefault();
@@ -251,6 +207,7 @@ function buildTable(){
           input.dataset.team=found;
         }
 
+        autoFillRemaining(input.dataset.race);
         recalcScores();
       });
 
@@ -262,6 +219,41 @@ function buildTable(){
   }
 
   tableArea.appendChild(table);
+}
+
+/* ============================= */
+/* ★順位自動補完 */
+
+function autoFillRemaining(race){
+
+  const col=[...document.querySelectorAll(`input[data-race="${race}"]`)];
+
+  const counts=new Array(teams.length).fill(0);
+
+  col.forEach(i=>{
+    if(i.dataset.team!==""){
+      counts[Number(i.dataset.team)]++;
+    }
+  });
+
+  const teamSize=24/teams.length;
+
+  const remainingTeams=[];
+  counts.forEach((c,i)=>{
+    if(c<teamSize) remainingTeams.push(i);
+  });
+
+  /* 未入力チームが1つだけ */
+  if(remainingTeams.length!==1) return;
+
+  const targetTeam=remainingTeams[0];
+
+  col.forEach(input=>{
+    if(input.dataset.team===""){
+      input.dataset.team=targetTeam;
+      input.value=teams[targetTeam].name;
+    }
+  });
 }
 
 /* ============================= */
@@ -324,70 +316,7 @@ function recalcScores(){
 
   const remain=getRemainingRaces();
   remainRace.textContent=`残りレース: ${remain}`;
-  updateDisplays(remain);
 }
-
-/* ============================= */
-
-function updateDisplays(remain){
-
-  const sorted=[...teams].sort((a,b)=>b.score-a.score);
-  const maxSwing=calcComebackPerRace()*remain;
-
-  comebackLine.textContent=`逆転可能ライン: ${maxSwing}pts以内`;
-
-  const target=Number(targetRank.value||1);
-  let championText="未確定";
-
-  if(sorted.length>=target){
-    championText=`現在 ${target}位以内争い`;
-  }
-
-  championStatus.textContent=`勝利判定: ${championText}`;
-
-  obs1.innerHTML="";
-  obs3.innerHTML="";
-
-  let copyText=
-`残り${remain}レース
-逆転可能ライン ${maxSwing}pts以内
-${championText}
-
-`;
-
-  let newRanks={};
-
-  sorted.forEach((team,i)=>{
-
-    const diff=sorted[0].score-team.score;
-
-    let arrow="→";
-    if(previousRanks[team.name]!==undefined){
-      if(previousRanks[team.name]>i) arrow="↑";
-      else if(previousRanks[team.name]<i) arrow="↓";
-    }
-
-    const line=
-`${arrow} ${i+1}. ${team.name} ${team.score}pts${i?` (-${diff})`:""}`;
-
-    const div=document.createElement("div");
-    div.textContent=line;
-
-    obs1.appendChild(div);
-    obs3.appendChild(div.cloneNode(true));
-
-    copyText+=line+"\n";
-    newRanks[team.name]=i;
-  });
-
-  previousRanks=newRanks;
-
-  copyArea.value=copyText;
-
-  saveOBSState({text:copyText});
-}
-
-/* ============================= */
 
 function copyScores(){
   copyArea.select();
