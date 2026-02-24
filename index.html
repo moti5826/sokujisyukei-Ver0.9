@@ -24,15 +24,21 @@ input{
   background:black;
   padding:10px;
   margin-top:20px;
-  width:360px;
-  font-size:20px;
+  width:420px;
+  font-size:22px;
 }
 
 .obs img{
   width:100%;
   margin-bottom:8px;
-  display:block;
 }
+
+.gold{color:#FFD700;font-weight:bold;}
+.silver{color:#C0C0C0;font-weight:bold;}
+.bronze{color:#CD7F32;font-weight:bold;}
+.self{color:#ff4444;font-weight:bold;}
+.close{color:#4da6ff;}
+.normal{color:white;}
 
 button{margin:4px;}
 </style>
@@ -63,12 +69,15 @@ button{margin:4px;}
 
 <br><br>
 
+OBS画像URL：
+<input id="obsImageUrl" style="width:350px">
+
+<br><br>
+
 <button onclick="init()">生成</button>
 <button onclick="resetInputs()">リセット</button>
 
 <h2 id="remainRace">残りレース: -</h2>
-<h2 id="comebackLine">逆転可能ライン: -</h2>
-<h2 id="championStatus">勝利判定: -</h2>
 
 <hr>
 
@@ -81,6 +90,9 @@ button{margin:4px;}
 <br>
 <button onclick="copyScores()">コピー</button>
 
+<h2>OBS表示URL（そのままOBSブラウザソースへ）</h2>
+<input id="obsURL" style="width:500px" readonly>
+
 <script>
 
 /* ============================= */
@@ -91,20 +103,40 @@ const POINT_TABLE=[
 
 let teams=[];
 let raceCount=12;
-let previousRanks={};
 let shortcutMap={};
+
+/* ===== OBS同期 ===== */
+
+function saveOBS(text){
+  localStorage.setItem("mk_obs_live",JSON.stringify({
+    text,
+    img:obsImageUrl.value
+  }));
+}
+
+function loadOBS(){
+  return JSON.parse(localStorage.getItem("mk_obs_live")||"{}");
+}
+
+/* OBS専用画面 */
+const params=new URLSearchParams(location.search);
+if(params.get("obs")){
+  document.body.innerHTML="<div id='obsLive' class='obs'></div>";
+
+  setInterval(()=>{
+    const data=loadOBS();
+    if(!data.text) return;
+
+    document.getElementById("obsLive").innerHTML=
+      (data.img?`<img src="${data.img}">`:"")+
+      data.text.replace(/\n/g,"<br>");
+  },300);
+}
 
 /* ============================= */
 
 for(let i=8;i<=32;i++){
   raceSelect.append(new Option(i,i));
-}
-
-function updateTargetRankOptions(teamCount){
-  targetRank.innerHTML="";
-  for(let i=1;i<=teamCount;i++){
-    targetRank.append(new Option(`${i}位`,i));
-  }
 }
 
 function init(){
@@ -114,9 +146,6 @@ function init(){
   const teamCount=24/teamSize;
 
   teams=[];
-  previousRanks={};
-
-  updateTargetRankOptions(teamCount);
 
   teamNameArea.innerHTML="<h3>チーム設定</h3>";
 
@@ -131,7 +160,9 @@ function init(){
   }
 
   buildTable();
-  recalcScores();
+
+  obsURL.value=
+    location.origin+location.pathname+"?obs=1";
 }
 
 function resetInputs(){
@@ -168,14 +199,12 @@ function buildTable(){
 
       input.addEventListener("keydown",(e)=>{
 
-        /* ENTER ↓ */
         if(e.key==="Enter"){
           e.preventDefault();
           moveNext(input);
           return;
         }
 
-        /* Backspace 完全削除 */
         if(e.key==="Backspace"){
           e.preventDefault();
           input.value="";
@@ -184,7 +213,6 @@ function buildTable(){
           return;
         }
 
-        /* ショートカット */
         const key=e.key.toLowerCase();
         if(shortcutMap[key]!==undefined){
           e.preventDefault();
@@ -221,13 +249,11 @@ function buildTable(){
   tableArea.appendChild(table);
 }
 
-/* ============================= */
-/* ★順位自動補完 */
+/* ===== 自動補完 ===== */
 
 function autoFillRemaining(race){
 
   const col=[...document.querySelectorAll(`input[data-race="${race}"]`)];
-
   const counts=new Array(teams.length).fill(0);
 
   col.forEach(i=>{
@@ -237,21 +263,16 @@ function autoFillRemaining(race){
   });
 
   const teamSize=24/teams.length;
+  const remain=counts
+    .map((c,i)=>c<teamSize?i:null)
+    .filter(v=>v!==null);
 
-  const remainingTeams=[];
-  counts.forEach((c,i)=>{
-    if(c<teamSize) remainingTeams.push(i);
-  });
-
-  /* 未入力チームが1つだけ */
-  if(remainingTeams.length!==1) return;
-
-  const targetTeam=remainingTeams[0];
+  if(remain.length!==1) return;
 
   col.forEach(input=>{
     if(input.dataset.team===""){
-      input.dataset.team=targetTeam;
-      input.value=teams[targetTeam].name;
+      input.dataset.team=remain[0];
+      input.value=teams[remain[0]].name;
     }
   });
 }
@@ -275,25 +296,6 @@ function moveNext(input){
   if(next) next.focus();
 }
 
-function getRemainingRaces(){
-  let finished=0;
-  for(let r=0;r<raceCount;r++){
-    const col=[...document.querySelectorAll(`input[data-race="${r}"]`)];
-    if(col.every(i=>i.dataset.team!=="")) finished++;
-  }
-  return raceCount-finished;
-}
-
-function calcComebackPerRace(){
-  const teamSize=Number(formatSelect.value);
-  let max=0,min=0;
-  for(let i=0;i<teamSize;i++){
-    max+=POINT_TABLE[i];
-    min+=POINT_TABLE[POINT_TABLE.length-1-i];
-  }
-  return max-min;
-}
-
 /* ============================= */
 
 function recalcScores(){
@@ -314,9 +316,31 @@ function recalcScores(){
     teams[teamIndex].score+=POINT_TABLE[rank-1];
   });
 
-  const remain=getRemainingRaces();
-  remainRace.textContent=`残りレース: ${remain}`;
+  const sorted=[...teams].sort((a,b)=>b.score-a.score);
+  const myTeam=myTeamInput.value.trim();
+
+  let text="";
+
+  sorted.forEach((team,i)=>{
+
+    let cls="normal";
+    const diff=sorted[0].score-team.score;
+
+    if(team.name===myTeam) cls="self";
+    else if(i===0) cls="gold";
+    else if(i===1) cls="silver";
+    else if(i===2) cls="bronze";
+    else if(diff<=8) cls="close";
+
+    text+=`<span class="${cls}">${i+1}. ${team.name} ${team.score}pts</span>\n`;
+  });
+
+  copyArea.value=text.replace(/<[^>]+>/g,"");
+
+  saveOBS(text);
 }
+
+/* ============================= */
 
 function copyScores(){
   copyArea.select();
