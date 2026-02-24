@@ -28,11 +28,6 @@ input{
   font-size:22px;
 }
 
-.obs img{
-  width:100%;
-  margin-bottom:8px;
-}
-
 .gold{color:#FFD700;font-weight:bold;}
 .silver{color:#C0C0C0;font-weight:bold;}
 .bronze{color:#CD7F32;font-weight:bold;}
@@ -78,6 +73,8 @@ OBS画像URL：
 <button onclick="resetInputs()">リセット</button>
 
 <h2 id="remainRace">残りレース: -</h2>
+<h2 id="targetStatus">目標順位: -</h2>
+<h2 id="championStatus">勝利判定: -</h2>
 
 <hr>
 
@@ -90,7 +87,7 @@ OBS画像URL：
 <br>
 <button onclick="copyScores()">コピー</button>
 
-<h2>OBS表示URL（そのままOBSブラウザソースへ）</h2>
+<h2>OBS表示URL</h2>
 <input id="obsURL" style="width:500px" readonly>
 
 <script>
@@ -118,7 +115,6 @@ function loadOBS(){
   return JSON.parse(localStorage.getItem("mk_obs_live")||"{}");
 }
 
-/* OBS専用画面 */
 const params=new URLSearchParams(location.search);
 if(params.get("obs")){
   document.body.innerHTML="<div id='obsLive' class='obs'></div>";
@@ -147,6 +143,11 @@ function init(){
 
   teams=[];
 
+  targetRank.innerHTML="";
+  for(let i=1;i<=teamCount;i++){
+    targetRank.append(new Option(`${i}位`,i));
+  }
+
   teamNameArea.innerHTML="<h3>チーム設定</h3>";
 
   for(let i=0;i<teamCount;i++){
@@ -155,14 +156,29 @@ function init(){
 
     teamNameArea.innerHTML+=`
       チーム${i+1}
-      名前:<input class="teamInput" id="teamName${i}" value="${name}">
+      名前:<input class="teamInput" id="teamName${i}">
       SC:<input class="shortcutInput" id="shortcut${i}" maxlength="1"><br>`;
   }
 
+  addEnterMove();
   buildTable();
 
-  obsURL.value=
-    location.origin+location.pathname+"?obs=1";
+  obsURL.value=location.origin+location.pathname+"?obs=1";
+}
+
+/* ===== Enterで下移動 ===== */
+function addEnterMove(){
+  setTimeout(()=>{
+    document.querySelectorAll(".teamInput,.shortcutInput")
+    .forEach((el,i,arr)=>{
+      el.addEventListener("keydown",e=>{
+        if(e.key==="Enter"){
+          e.preventDefault();
+          if(arr[i+1]) arr[i+1].focus();
+        }
+      });
+    });
+  },50);
 }
 
 function resetInputs(){
@@ -250,7 +266,6 @@ function buildTable(){
 }
 
 /* ===== 自動補完 ===== */
-
 function autoFillRemaining(race){
 
   const col=[...document.querySelectorAll(`input[data-race="${race}"]`)];
@@ -296,6 +311,27 @@ function moveNext(input){
   if(next) next.focus();
 }
 
+/* ===== 残りレース ===== */
+function getRemainingRaces(){
+  let finished=0;
+  for(let r=0;r<raceCount;r++){
+    const col=[...document.querySelectorAll(`input[data-race="${r}"]`)];
+    if(col.every(i=>i.dataset.team!=="")) finished++;
+  }
+  return raceCount-finished;
+}
+
+/* ===== 最大点差 ===== */
+function calcMaxSwing(){
+  const teamSize=Number(formatSelect.value);
+  let max=0,min=0;
+  for(let i=0;i<teamSize;i++){
+    max+=POINT_TABLE[i];
+    min+=POINT_TABLE[POINT_TABLE.length-1-i];
+  }
+  return max-min;
+}
+
 /* ============================= */
 
 function recalcScores(){
@@ -319,7 +355,23 @@ function recalcScores(){
   const sorted=[...teams].sort((a,b)=>b.score-a.score);
   const myTeam=myTeamInput.value.trim();
 
-  let text="";
+  const remain=getRemainingRaces();
+  remainRace.textContent=`残りレース: ${remain}`;
+
+  /* 勝利確定判定 */
+  let champion="未確定";
+  if(sorted.length>1){
+    const swing=calcMaxSwing()*remain;
+    const diff=sorted[0].score-sorted[1].score;
+    if(diff>swing) champion="🏆 勝利確定";
+  }
+  championStatus.textContent=`勝利判定: ${champion}`;
+
+  /* 目標順位表示 */
+  const target=Number(targetRank.value||1);
+  targetStatus.textContent=`目標順位: ${target}位 / ${teams.length}位`;
+
+  let text=`残り${remain}レース\n${champion}\n\n`;
 
   sorted.forEach((team,i)=>{
 
@@ -332,15 +384,12 @@ function recalcScores(){
     else if(i===2) cls="bronze";
     else if(diff<=8) cls="close";
 
-    text+=`<span class="${cls}">${i+1}. ${team.name} ${team.score}pts</span>\n`;
+    text+=`${i+1}. ${team.name} ${team.score}pts\n`;
   });
 
-  copyArea.value=text.replace(/<[^>]+>/g,"");
-
+  copyArea.value=text;
   saveOBS(text);
 }
-
-/* ============================= */
 
 function copyScores(){
   copyArea.select();
