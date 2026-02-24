@@ -58,6 +58,9 @@ button{margin:4px;}
 自チーム名：
 <input id="myTeamInput">
 
+目標順位：
+<select id="targetRank"></select>
+
 <br><br>
 
 OBS画像①：
@@ -68,6 +71,7 @@ OBS画像③：
 <br><br>
 
 <button onclick="init()">生成</button>
+<button onclick="resetInputs()">リセット</button>
 
 <h2 id="remainRace">残りレース: -</h2>
 <h2 id="comebackLine">逆転可能ライン: -</h2>
@@ -146,6 +150,14 @@ function generateObsURLs(){
   obsUrl3.value=base+"?obs=3";
 }
 
+/* ===== 目標順位選択肢生成 ===== */
+function updateTargetRankOptions(teamCount){
+  targetRank.innerHTML="";
+  for(let i=1;i<=teamCount;i++){
+    targetRank.append(new Option(`${i}位`,i));
+  }
+}
+
 /* ============================= */
 
 function init(){
@@ -156,6 +168,8 @@ function init(){
 
   teams=[];
   previousRanks={};
+
+  updateTargetRankOptions(teamCount);
 
   teamNameArea.innerHTML="<h3>チーム設定</h3>";
 
@@ -172,6 +186,12 @@ function init(){
   buildTable();
   recalcScores();
   generateObsURLs();
+}
+
+/* ===== リセット ===== */
+function resetInputs(){
+  if(!confirm("全データをリセットしますか？")) return;
+  location.reload();
 }
 
 /* ============================= */
@@ -203,14 +223,12 @@ function buildTable(){
 
       input.addEventListener("keydown",(e)=>{
 
-        /* ENTERで下へ */
         if(e.key==="Enter"){
           e.preventDefault();
           moveNext(input);
           return;
         }
 
-        /* ショートカット */
         const key=e.key.toLowerCase();
         if(shortcutMap[key]!==undefined){
           e.preventDefault();
@@ -222,7 +240,6 @@ function buildTable(){
         }
       });
 
-      /* ===== 自動補完 ===== */
       input.addEventListener("input",()=>{
         const val=input.value.toLowerCase();
 
@@ -319,10 +336,11 @@ function updateDisplays(remain){
 
   comebackLine.textContent=`逆転可能ライン: ${maxSwing}pts以内`;
 
+  const target=Number(targetRank.value||1);
   let championText="未確定";
-  if(sorted.length>=2 &&
-     sorted[0].score-sorted[1].score>maxSwing){
-      championText=`🏆 ${sorted[0].name} 勝利確定`;
+
+  if(sorted.length>=target){
+    championText=`現在 ${target}位以内争い`;
   }
 
   championStatus.textContent=`勝利判定: ${championText}`;
@@ -366,7 +384,6 @@ ${championText}
 
   copyArea.value=copyText;
 
-  /* OBSリアルタイム保存 */
   saveOBSState({text:copyText});
 }
 
