@@ -29,13 +29,6 @@ input{
   font-size:22px;
 }
 
-.gold{color:#FFD700;font-weight:bold;}
-.silver{color:#C0C0C0;font-weight:bold;}
-.bronze{color:#CD7F32;font-weight:bold;}
-.self{color:#ff4444;font-weight:bold;}
-.close{color:#4da6ff;}
-.normal{color:white;}
-
 button{margin:4px;}
 </style>
 </head>
@@ -104,6 +97,49 @@ let teams=[];
 let raceCount=12;
 let shortcutMap={};
 
+/* ===== 保存 ===== */
+
+function saveInputs(){
+
+  const data={
+    teams:teams,
+    inputs:[]
+  };
+
+  document.querySelectorAll("input[data-rank]").forEach(i=>{
+    data.inputs.push({
+      race:i.dataset.race,
+      rank:i.dataset.rank,
+      team:i.dataset.team,
+      value:i.value
+    });
+  });
+
+  localStorage.setItem("mk_score_data",JSON.stringify(data));
+}
+
+function loadInputs(){
+
+  const data=JSON.parse(localStorage.getItem("mk_score_data")||"null");
+  if(!data) return;
+
+  setTimeout(()=>{
+
+    data.inputs.forEach(d=>{
+      const el=document.querySelector(
+        `input[data-race="${d.race}"][data-rank="${d.rank}"]`
+      );
+      if(!el) return;
+
+      el.value=d.value;
+      el.dataset.team=d.team;
+    });
+
+    recalcScores();
+
+  },200);
+}
+
 /* ===== OBS同期 ===== */
 
 function saveOBS(text){
@@ -167,6 +203,8 @@ function init(){
   buildTable();
 
   obsURL.value=location.origin+location.pathname+"?obs=1";
+
+  loadInputs();
 }
 
 /* ===== Enterで下移動 ===== */
@@ -186,6 +224,7 @@ function addEnterMove(){
 
 function resetInputs(){
   if(!confirm("全データをリセットしますか？")) return;
+  localStorage.clear();
   location.reload();
 }
 
@@ -228,6 +267,7 @@ function buildTable(){
           input.value="";
           input.dataset.team="";
           recalcScores();
+          saveInputs();
           return;
         }
 
@@ -239,6 +279,7 @@ function buildTable(){
           input.value=teams[idx].name;
           moveNext(input);
           recalcScores();
+          saveInputs();
         }
       });
 
@@ -255,6 +296,7 @@ function buildTable(){
 
         autoFillRemaining(input.dataset.race);
         recalcScores();
+        saveInputs();
       });
 
       td.appendChild(input);
@@ -371,51 +413,23 @@ function recalcScores(){
   const remain=getRemainingRaces();
   remainRace.textContent=`残りレース: ${remain}`;
 
-  /* 勝利確定 */
-  let champion="未確定";
-  if(sorted.length>1){
-    const swing=calcMaxSwing()*remain;
-    const diff=sorted[0].score-sorted[1].score;
-    if(diff>swing) champion="🏆 勝利確定";
-  }
-  championStatus.textContent=`勝利判定: ${champion}`;
+  /* コピー表示（自チーム基準） */
 
-  /* 自順位確定 */
-  let rankLock="-";
-  const swing=calcMaxSwing()*remain;
+  const my=sorted.find(t=>t.name===myTeam);
 
-  const myIndex=sorted.findIndex(t=>t.name===myTeam);
-
-  if(myIndex!==-1){
-
-    const upper=sorted[myIndex-1];
-    const lower=sorted[myIndex+1];
-
-    if(upper && lower){
-
-      const upDiff=upper.score-sorted[myIndex].score;
-      const lowDiff=sorted[myIndex].score-lower.score;
-
-      if(upDiff>swing && lowDiff>swing){
-        rankLock="🎯 自順位確定";
-      }
-    }
-  }
-
-  rankLockStatus.textContent=`自順位確定: ${rankLock}`;
-
-  /* コピー表示 */
-
-  let text=`残り${remain}レース\n${champion}\n${rankLock}\n\n`;
-
-  const topScore=sorted[0].score;
+  let text=`残り${remain}レース\n\n`;
 
   sorted.forEach((team,i)=>{
 
-    const diff=team.score-topScore;
-    const diffText=diff===0?"+0":diff;
+    let diff=0;
 
-    text+=`${i+1}. ${team.name} ${team.score}pts ${diffText}\n`;
+    if(my){
+      diff=team.score-my.score;
+    }
+
+    const sign=diff>0?`+${diff}`:diff;
+
+    text+=`${i+1}. ${team.name} ${team.score}pts (${sign})\n`;
 
   });
 
