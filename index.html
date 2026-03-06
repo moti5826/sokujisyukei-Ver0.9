@@ -19,6 +19,7 @@ input{
 
 .teamInput{width:120px;margin:3px;}
 .shortcutInput{width:40px;}
+.adjustInput{width:60px;}
 
 .obs{
   background:black;
@@ -75,6 +76,7 @@ OBS画像URL：
 <h2 id="remainRace">残りレース: -</h2>
 <h2 id="targetStatus">目標順位: -</h2>
 <h2 id="championStatus">勝利判定: -</h2>
+<h2 id="rankLockStatus">自順位確定: -</h2>
 
 <hr>
 
@@ -152,12 +154,13 @@ function init(){
 
   for(let i=0;i<teamCount;i++){
     const name=`Team${i+1}`;
-    teams.push({name,score:0});
+    teams.push({name,score:0,adjust:0});
 
     teamNameArea.innerHTML+=`
       チーム${i+1}
       名前:<input class="teamInput" id="teamName${i}">
-      SC:<input class="shortcutInput" id="shortcut${i}" maxlength="1"><br>`;
+      SC:<input class="shortcutInput" id="shortcut${i}" maxlength="1">
+      補正:<input class="adjustInput" id="adjust${i}" value="0"><br>`;
   }
 
   addEnterMove();
@@ -169,7 +172,7 @@ function init(){
 /* ===== Enterで下移動 ===== */
 function addEnterMove(){
   setTimeout(()=>{
-    document.querySelectorAll(".teamInput,.shortcutInput")
+    document.querySelectorAll(".teamInput,.shortcutInput,.adjustInput")
     .forEach((el,i,arr)=>{
       el.addEventListener("keydown",e=>{
         if(e.key==="Enter"){
@@ -187,7 +190,6 @@ function resetInputs(){
 }
 
 /* ============================= */
-/* TABLE */
 
 function buildTable(){
 
@@ -278,16 +280,19 @@ function autoFillRemaining(race){
   });
 
   const teamSize=24/teams.length;
-  const remain=counts
+
+  const remainTeams=counts
     .map((c,i)=>c<teamSize?i:null)
     .filter(v=>v!==null);
 
-  if(remain.length!==1) return;
+  if(remainTeams.length!==1) return;
+
+  const teamIndex=remainTeams[0];
 
   col.forEach(input=>{
     if(input.dataset.team===""){
-      input.dataset.team=remain[0];
-      input.value=teams[remain[0]].name;
+      input.dataset.team=teamIndex;
+      input.value=teams[teamIndex].name;
     }
   });
 }
@@ -311,7 +316,8 @@ function moveNext(input){
   if(next) next.focus();
 }
 
-/* ===== 残りレース ===== */
+/* ============================= */
+
 function getRemainingRaces(){
   let finished=0;
   for(let r=0;r<raceCount;r++){
@@ -321,7 +327,6 @@ function getRemainingRaces(){
   return raceCount-finished;
 }
 
-/* ===== 最大点差 ===== */
 function calcMaxSwing(){
   const teamSize=Number(formatSelect.value);
   let max=0,min=0;
@@ -341,8 +346,12 @@ function recalcScores(){
 
   teams.forEach((t,i)=>{
     t.name=document.getElementById(`teamName${i}`).value;
+
     const sc=document.getElementById(`shortcut${i}`).value.toLowerCase();
     if(sc) shortcutMap[sc]=i;
+
+    const adj=Number(document.getElementById(`adjust${i}`).value||0);
+    t.adjust=adj;
   });
 
   document.querySelectorAll("input[data-rank]").forEach(input=>{
@@ -352,13 +361,17 @@ function recalcScores(){
     teams[teamIndex].score+=POINT_TABLE[rank-1];
   });
 
+  teams.forEach(t=>{
+    t.score+=t.adjust;
+  });
+
   const sorted=[...teams].sort((a,b)=>b.score-a.score);
   const myTeam=myTeamInput.value.trim();
 
   const remain=getRemainingRaces();
   remainRace.textContent=`残りレース: ${remain}`;
 
-  /* 勝利確定判定 */
+  /* 勝利確定 */
   let champion="未確定";
   if(sorted.length>1){
     const swing=calcMaxSwing()*remain;
@@ -367,24 +380,43 @@ function recalcScores(){
   }
   championStatus.textContent=`勝利判定: ${champion}`;
 
-  /* 目標順位表示 */
-  const target=Number(targetRank.value||1);
-  targetStatus.textContent=`目標順位: ${target}位 / ${teams.length}位`;
+  /* 自順位確定 */
+  let rankLock="-";
+  const swing=calcMaxSwing()*remain;
 
-  let text=`残り${remain}レース\n${champion}\n\n`;
+  const myIndex=sorted.findIndex(t=>t.name===myTeam);
+
+  if(myIndex!==-1){
+
+    const upper=sorted[myIndex-1];
+    const lower=sorted[myIndex+1];
+
+    if(upper && lower){
+
+      const upDiff=upper.score-sorted[myIndex].score;
+      const lowDiff=sorted[myIndex].score-lower.score;
+
+      if(upDiff>swing && lowDiff>swing){
+        rankLock="🎯 自順位確定";
+      }
+    }
+  }
+
+  rankLockStatus.textContent=`自順位確定: ${rankLock}`;
+
+  /* コピー表示 */
+
+  let text=`残り${remain}レース\n${champion}\n${rankLock}\n\n`;
+
+  const topScore=sorted[0].score;
 
   sorted.forEach((team,i)=>{
 
-    let cls="normal";
-    const diff=sorted[0].score-team.score;
+    const diff=team.score-topScore;
+    const diffText=diff===0?"+0":diff;
 
-    if(team.name===myTeam) cls="self";
-    else if(i===0) cls="gold";
-    else if(i===1) cls="silver";
-    else if(i===2) cls="bronze";
-    else if(diff<=8) cls="close";
+    text+=`${i+1}. ${team.name} ${team.score}pts ${diffText}\n`;
 
-    text+=`${i+1}. ${team.name} ${team.score}pts\n`;
   });
 
   copyArea.value=text;
